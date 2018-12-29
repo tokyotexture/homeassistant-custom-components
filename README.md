@@ -24,12 +24,12 @@ switch:
   - platform: SONY_ADCP
     switches:
       projector:
-      resource: 192.168.1.140
-      port: 53595
-      command_on: "power \"on\""
-      command_off: "power \"off\""
-      command_state: "power_status ?"
-      value_template: "{{ value != '\"standby\"' }}"
+       resource: 192.168.1.140
+       port: 53595
+       command_on: "power \"on\""
+       command_off: "power \"off\""
+       command_state: "power_status ?"
+       value_template: "{{ value != '\"standby\"' }}"
 ```
 
 #### Quirks, gotchas, helpful hints and todo:
