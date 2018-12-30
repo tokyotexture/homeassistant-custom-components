@@ -1,8 +1,8 @@
 """
-Support for switch controlled using a telnet connection.
+Support for Sony ADCP compatible projectors controlled as a swtich using a telnet connection.
 
-For more details about this platform, please refer to the documentation at
-https://home-assistant.io/components/switch.telnet/
+For more details about this custom component, please refer to the documentation at
+https://github.com/tokyotexture/homeassistant-custom-components
 """
 from datetime import timedelta
 import logging
@@ -15,36 +15,40 @@ from homeassistant.components.switch import (
     ENTITY_ID_FORMAT, PLATFORM_SCHEMA, SwitchDevice)
 from homeassistant.const import (
     CONF_COMMAND_OFF, CONF_COMMAND_ON, CONF_COMMAND_STATE, CONF_NAME,
-    CONF_PORT, CONF_RESOURCE, CONF_SWITCHES, CONF_VALUE_TEMPLATE)
+    CONF_PORT, CONF_RESOURCE, CONF_SWITCHES, CONF_VALUE_TEMPLATE, CONF_PASSWORD)
 import homeassistant.helpers.config_validation as cv
 
 _LOGGER = logging.getLogger(__name__)
 
-DEFAULT_PORT = 23
+# Set defaults as per ADCP standard
+DEFAULT_COMMAND_OFF = "power \"off\""
+DEFAULT_COMMAND_ON = "power \"on\""
+DEFAULT_COMMAND_STATE = "power_status ?"
+DEFAULT_VALUE_TEMPLATE = "{{ value != '\"standby\"' }}"
+DEFAULT_NAME = 'Projector'
+DEFAULT_PORT = 53595
 
+# Validation of the user's configuration
 SWITCH_SCHEMA = vol.Schema({
-    vol.Required(CONF_COMMAND_OFF): cv.string,
-    vol.Required(CONF_COMMAND_ON): cv.string,
+    vol.Required(CONF_COMMAND_OFF, default=DEFAULT_COMMAND_OFF): cv.string,
+    vol.Required(CONF_COMMAND_ON, default=DEFAULT_COMMAND_ON): cv.string,
     vol.Required(CONF_RESOURCE): cv.string,
-    vol.Optional(CONF_VALUE_TEMPLATE): cv.template,
-    vol.Optional(CONF_COMMAND_STATE): cv.string,
-    vol.Optional(CONF_NAME): cv.string,
+    vol.Optional(CONF_VALUE_TEMPLATE, default=DEFAULT_VALUE_TEMPLATE): cv.template,
+    vol.Optional(CONF_COMMAND_STATE, default=DEFAULT_COMMAND_STATE): cv.string,
+    vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
     vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
+    vol.Optional(CONF_PASSWORD): cv.string,
 })
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_SWITCHES): vol.Schema({cv.slug: SWITCH_SCHEMA}),
 })
 
+# Polling interval for checking on/off (standby) of projector
 SCAN_INTERVAL = timedelta(seconds=10)
 
-def encrypt_string(hash_string):
-    sha_signature = \
-        hashlib.sha256(hash_string.encode()).hexdigest()
-    return sha_signature
-
 def setup_platform(hass, config, add_entities, discovery_info=None):
-    """Find and return switches controlled by telnet commands."""
+    """Find and return projectors controlled by ADCP commands."""
     devices = config.get(CONF_SWITCHES, {})
     switches = []
 
@@ -60,6 +64,7 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
                 object_id,
                 device_config.get(CONF_RESOURCE),
                 device_config.get(CONF_PORT),
+                device_config.get(CONF_PASSWORD),
                 device_config.get(CONF_NAME, object_id),
                 device_config.get(CONF_COMMAND_ON),
                 device_config.get(CONF_COMMAND_OFF),
@@ -76,21 +81,27 @@ def setup_platform(hass, config, add_entities, discovery_info=None):
 
 
 class TelnetSwitch(SwitchDevice):
-    """Representation of a switch that can be toggled using telnet commands."""
+    """Representation of a projector as a switch, that can be toggled using ADCP commands."""
 
-    def __init__(self, hass, object_id, resource, port, friendly_name,
+    def __init__(self, hass, object_id, resource, port, password, friendly_name,
                  command_on, command_off, command_state, value_template):
         """Initialize the switch."""
         self._hass = hass
         self.entity_id = ENTITY_ID_FORMAT.format(object_id)
         self._resource = resource
         self._port = port
+        self._password = password
         self._name = friendly_name
         self._state = False
         self._command_on = command_on
         self._command_off = command_off
         self._command_state = command_state
         self._value_template = value_template
+
+    def _encrypt_string(self, hash_string):
+        sha_signature = \
+            hashlib.sha256(hash_string.encode()).hexdigest()
+        return sha_signature
 
     def _telnet_command(self, command):
         try:
@@ -99,37 +110,41 @@ class TelnetSwitch(SwitchDevice):
             initial_hash = str.rstrip(initial_hash)
 
             authenticated = 0
-            password = "PASSWORD"
+            password = self._password
 
             if 'NOKEY' in initial_hash:
                 authenticated = 1
                 _LOGGER.debug(
                 'Received NOKEY. No authentication needed.')
             else:
-                encrypt_hash = encrypt_string(initial_hash + password)
+                encrypt_hash = self._encrypt_string(initial_hash + password)
                 telnet.write(encrypt_hash.encode('ASCII') + b"\r\n")
                 auth_reply = telnet.read_until(b"\r\n", 5).decode('ASCII')
                 auth_reply = str.rstrip(auth_reply)
                 if 'OK' in auth_reply:
                     authenticated = 1
                     _LOGGER.debug(
-                    'Successfully provided password hash and received reply.')
+                    "Successfully provided password hash and received \"OK\" reply.")
                 elif 'err_auth' in auth_reply:
-                    _LOGGER.error(
-                    'Incorrect hash/password. Rejected by server.')
+                    if password is None:
+                        _LOGGER.error(
+                        "Server asked for password authentication, but password has not been set. Auth error.")
+                    else:
+                        _LOGGER.error(
+                        "Authentication error received by server. Most likely incorrect password.")
                 else:
                     _LOGGER.error(
-                    'Something unexpected happened authenticating.')
+                    "Something unexpected happened authenticating.")
 
             telnet.write(command.encode('ASCII') + b'\r\n')
             response = telnet.read_until(b"\r\n", 5)
             _LOGGER.debug(
-                'Response for telnet command: %s', 
-                response.decode('ASCII'))
+                "Client sent command: \"%s\", and server response was: \"%s\"", 
+                command.encode('ASCII'), response.decode('ASCII'))
             return response.decode('ASCII').strip()
         except IOError as error:
             _LOGGER.error(
-                'Command "%s" failed with exception: %s',
+                "Command \"%s\" failed with exception: %s",
                 command, repr(error))
             return None
 
