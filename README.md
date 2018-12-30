@@ -37,21 +37,23 @@ switch:
 
 #### Configuration variables:
 **resource** (String) (Required): Host name or IP address of the device.<br />
-**port** (integer)(Optional): Port to connect to.<br />Default value: 53595.<br />
-**password** (string) (Optional): Password for the projector. Only needed if authentication is turned on in the projector. <br />
+**port** (integer)(Optional): Port to connect to.<br />Default value: ```53595```<br />
+**password** (string)(Optional): Password for the projector. Only needed if authentication is turned on in the projector. <br />
+**name** (string)(Optional): User friendly name. <br /> Default: ```'Projector'```<br />
 **command_on** (string)(optional): Command to turn device on. <br /> Default value: ```"power \"on\""```<br />
 **command_off** (string)(optional): Command to turn device off. <br /> Default value: ```"power \"off\""```<br />
 **command_state** (string)(Optional): The command to verify status. How this is interpreted depends on ```value_template``` below. Default configuration assumes that this should return ```standby``` when off, anything else means that display is still running. This will make device state ```on``` when cooling down etc. <br /> Default value: ```"power_status ?"```<br />
 **value_template** (string)(Optional): The template used to verify projector state. The default value will consider projector running whenever value is anything BUT "standby". This optional configuration is left to make it easy to customize. For projectors that have periods of when lamp is cooling down, different people might want to consider this on/off depending on their preference. Refer to [Home Assistant template docs](https://www.home-assistant.io/docs/configuration/templating/) for usage.<br />Default value: ```"{{ value != '\"standby\"' }}"```<br />
   
 #### Advanced Example:
-Here is an example of what a configuration would look like with authentication set, projector running on a non-standard port, and to define that switch is only on when projector reports ```on```, considering it to be off when warming up, cooling down etc.
+Here is an example of what a configuration would look like with authentication set, projector running on a non-standard port, and to define that switch is only on when projector reports ```on```, considering it to be off when warming up, cooling down etc. Also, we will give it a more user friendly name.
 ```
 switch:
   - platform: SONY_ADCP
     switches:
       projector:
        resource: 192.168.1.140
+       name: "Living room projector"
        password: MyPassword
        port: 53500
        value_template: "{{ value == '\"on\"' }}"
